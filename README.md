@@ -1,9 +1,11 @@
-#  **Data Analysis Problem **
+#  **Data Analysis Problem**
 
-*  Use the dataset healthcare data frame (see below) to fit  
-     +  an OLSR linear (lm) model
-     +  a CART (rpart) model
-*  to predict **costs**
+Use the dataset healthcare data frame (see below) to fit  
+1. an OLSR linear (lm) model
+2. a CART (rpart) model
+to predict **costs**
+
+## Steps:
 
 *  Explore the dataset as needed to guide your analysis  
 *  Prepare your dataset (e.g., to avoid overfitting)  
