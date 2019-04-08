@@ -1,4 +1,4 @@
-#  **Data Analysis Problem**
+#  Healthcare Data Analysis Problem
 
 Use the dataset healthcare data frame (see below) to fit  
 1. an OLSR linear (lm) model
