@@ -1,0 +1,467 @@
+---  
+title: "Healthcare analysis"
+author: "CUNHA, LUIS"
+date: "December 12, 2018"
+output:
+  html_document:
+    toc: yes
+---
+
+```{r startup, warning=FALSE, message=FALSE, comment=NA, echo=FALSE}
+# Libraries needed for problem 1:
+library(tidyverse)
+library(RColorBrewer) # Load Color pallete
+library(rpart) # Load CART - rpart modelling
+library(rpart.plot) # Load rpart plot function to create regression tree
+
+knitr::opts_chunk$set(comment=NA)
+```
+
+#  **Problem 1**
+
+*  Use the dataset healthcare data frame (see below) to fit  
+     +  an OLSR linear (lm) model
+     +  a CART (rpart) model
+*  to predict **costs**
+
+*  Explore the dataset as needed to guide your analysis  
+*  Prepare your dataset (e.g., to avoid overfitting)  
+*  Fit your models using lm and rpart  
+*  Tune your models to optimize performance    
+*  Show and *explain* your results, use plots where appropriate  
+*  Evaluate model performance  
+*  State your conclusions  
+
+Use **only** OLSR (lm) and CART (rpart) models; do not use caret in Problem 1   
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+#  Do not change the code in this chunk!
+healthcare <- read_csv('healthcare.csv')
+```
+
+## Understand healthcare dataset
+
+In this section I will analyse the structure of dataset, in order to:
+
+* Understand variables' values, distinct values, min, max, means
+* Identify units for each variable to better interpret data
+* Identify Categorical vs Numerical variables
+* Find and remove incomplete cases in the dataset (NAs)
+
+### Analyze dataset for numerical vs categorical variables and distinct values
+
+```{r}
+# First dataset look
+head(healthcare)
+```
+
+Since we have Categorical variables in the dataset, we will first transform them to factors.
+```{r}
+# Changing discrete variables to factors to enable plotting using pairs()
+healthcare <- healthcare %>%
+  mutate(gender = as.factor(gender),
+         smoker = as.factor(smoker),
+         region = as.factor(region))
+```
+
+Let's analyse how data looks like
+```{r}
+# Identifying datatypes, min, max and mean
+summary(healthcare)
+```
+
+**Healthcare dataset analysis conclusion** 
+
+5 continuous variables:
+
+* age_years - age of person, it varies from 13 to 64 years old, mean is 39.21
+* body_mass - body fat mass of person, varies from 15.96 to 53.13, mean is 30.66. This avarage values apperents to be higher that the [average](https://en.wikipedia.org/wiki/Body_mass_index). For interpretation purposes I assume this measure is in kg/m2.
+* no_children - number of children 
+* prev_balance - Last balance for each person. Varies from -27,607.54 to +30,313.76 and mean of +136.09. I assume that this value is in  dollars $.
+* costs - cost of each patient varies from 1,122 to 63,770 and the average cost is 13,270. I assume that this value is in  dollars $.
+
+3 categorical variables:
+
+* gender - Person's gender: female or male
+* smoker - Person smokes: yes or no
+* region - Person's region: southeast, southwest, northeast, northwest
+
+#### Check for missing data
+
+Let't check if we have any incomplete observations that could impact our predicting models (NAs present in dataset cells):
+
+```{r}
+# Look for any rows with missing data on its columns
+nrow(healthcare[!complete.cases(healthcare),])
+```
+
+There is no data returned by the instruction above, all our observations have complete information, all columns are filled with a concrete value.
+
+In the next section we will analyse our data deeper, to get some intuition about it.
+
+## Exploratory data analysis
+
+Understanding existent relationships in the dataset is key for a good interpretation of results. Goal is to create some intuition about our data using a visual aproach; the assumptions made during this first approach, will be validated by our model, assessing predictors' influence.
+
+The following plot show us the relationship between variables. 
+
+```{r, fig.align='center'}
+# Plotting all pairs to understand relationships between each variable.
+pairs(healthcare)
+```
+
+From the chart above we can already see some potential relations, between costs and:
+
+* age_yrs
+* body_mass
+* smoker
+
+Let's confirm and explore those relations in the next section.
+
+### Can we identify any stronger relations with Costs?
+
+In these section we will zooming-in into the potential correlations identified in the previous chart. We will do that by analysing Costs by different variables.
+
+**Costs seems to have a strong correlation with:**
+
+* **Age**, it suggests a strong positive correlation, indicates that costs increase with age. However, it seems that there are 3 distinct groups, let's see if we can identify them by any other variable.
+  
+```{r, fig.align='center', fig.width=4, fig.height=3}
+# Using scatterplot to map costs by age_yrs
+ggplot(healthcare, aes(x=age_yrs, y=costs)) + 
+  geom_point() +
+  ggtitle("Costs by Age")
+```
+
+* **Smoker and Age**, there is a relation with smokers, age and costs; from the chart below, seems that a smoker has higher costs that a non-smoker, but by how much?
+
+```{r, fig.align='center', fig.width=4, fig.height=3}
+# Using scatterplot to map costs by age_yrs, splitted by smoker
+ggplot(healthcare, aes(x=age_yrs, y=costs, col=smoker)) + 
+  geom_point() +
+  facet_grid(.~ smoker) + 
+  ggtitle("Costs by Age, splitted by Smoker")
+```
+
+It seems that the costs for a person that smokes are around $20,000 higher than a person that doesn't smoke, across all ages. Let's confirm this assumption by fitting a linear model on costs as a function of age and smoker variables:
+
+```{r, fig.align='center', fig.width=4, fig.height=3}
+# Follow model demonstrates the costs difference between smokers and non-smokers 
+costs_smoker_model <- lm(costs ~ age_yrs + smoker, data= healthcare)
+
+# Print summary of fitted model
+summary(costs_smoker_model)
+```
+
+Yes! It seems that in average, a person that smokes has a cost of \$23,855.30 more than a person that doesn't. Also, if we take age_yrs into account, for each "year old" a person has, the cost raises $274.87.
+
+This result provides us a confidence rate higher than 95% for the p-value of both predictors, telling us that they are relevant to explain Costs.
+
+* **Smoker and Gender**, pretty evident is the increase of costs within smokers. Let's see if the same behavior is dependent on gender:
+
+```{r, fig.align='center', fig.width=8, fig.height=3}
+# Using scatterplot to understand relaiton between costs, gender, per smoke class
+ggplot(healthcare, aes(x=smoker, y=costs, col=gender)) + 
+  geom_point() +
+  facet_grid(.~gender) + 
+  geom_jitter() +
+  ggtitle("Costs by Smoker, splitted by Gender")
+```
+
+Doesn't seem that Gender provides more information to the model, this variable has consistent behavior between its values.
+
+
+* **Previous Balance**, from the chart below we realize that there is an increase on costs for people with previous balances outside [-5000, 5000] range. Can this behavior be related with the fact that smokers have a higher cost?
+
+```{r, fig.align='center', fig.width=4, fig.height=3}
+# Using scatterplot to understand relaiton between costs, gender, per smoke class
+ggplot(healthcare, aes(x=prev_balance, y=costs)) + 
+  geom_point() +
+  ggtitle("Costs by Previous Balance")
+```
+
+* **Smoker and Previous Balance**, the chart below shows that non smokers tend to have a less sparse previous balance:
+
+```{r, fig.align='center', fig.width=8, fig.height=3}
+# Using scatterplot to understand relaiton between costs, gender, per smoke class
+ggplot(healthcare, aes(x=prev_balance, y=costs, col=smoker)) + 
+  geom_point() +
+  facet_grid(.~smoker) +
+  ggtitle("Costs by Previous Balance, splitted by Smoker")
+```
+
+Indeed, the smokers grop tend to have more sparse previous balances and a increase costs.
+
+* **Body Mass and Smoker**, it seems that we have a strong correlation between costs, smokers and body mass.
+
+```{r, fig.align='center', fig.width=8, fig.height=3}
+# Using scatterplot to map costs by body_mass and coloring by previous balance
+ggplot(healthcare, aes(x=body_mass, y=costs, col=smoker)) + 
+  geom_point() +
+  facet_grid(.~smoker) +
+  ggtitle("Costs by Body Mass, splitted by Smoker")
+
+```
+
+From the chart above, we can infer that people that smoke have a baseline health cost higher than people that don't.
+
+On top of that something is very clear, people that smoke and have a BMI > 30 has, in average, costs increase fromm $30.000 up to $60.000.
+
+In contrast, people of same age that don't smoke, in average they stick below the $20.000 threshold! 
+
+
+Now that we have a better perspective on the dataset and understand some of the clear relations in the data, it's time to fit our models. Let's first split our data in 2, this will help us to train and test our model against never seen data. It's good to understand how well our model performs, in other words, if it generalizes well!
+
+## Split our dataset into Train and Test buckets
+
+In this section, healthcare will be splitted in 2 subsets. The Train subset will contain 80% of the entire population, it will be used to train our prediction models. To assess models' performance, the Test subset will be used.
+
+This method will avoid model overfitting, providing us a Test set to asssess models performance.
+
+```{r}
+set.seed(1)
+# Create the indexes for Train and Test samples
+health_indexes <- sample(1:2, size = nrow(healthcare), prob = c(0.8,0.2), replace = TRUE)
+
+# Create a train and tests from healtchare data frame 
+healthcare_train <- healthcare[health_indexes == 1, ] # subset healthcare to training indices only
+healthcare_test <- healthcare[health_indexes == 2, ] # subset healthcare to validation indices only
+```
+
+* healthcare_train - it will be used to train our models, we used 80% of entire population to do that
+* healthcare_test - will be used to test our models, check how well it generalizes
+
+## Fit regression models
+
+### Using a OLSR - Linear model - lm()
+
+Applying a linear regression model to healthcare dataset, we are going to fit a model for Costs using all variables in our dataset, we want to assess the quality of the model and also validate our conclusions performed in the earlier section: Exploratory Data Analysis.
+
+```{r}
+set.seed(1)
+# Apply a linear model to fit costs with all other features on our datset
+healthcare_lm <- lm(costs ~ ., data=healthcare_train)
+
+# Summary of the model
+summary(healthcare_lm)
+```
+
+From the result of the Linear regression model, we conclude that there are predictors that don't impact the quality of our model - Gender, Region  - maybe because they are "embedded"" in other, more explanatory, varaibles. All other predictors are relevant for the model; furthermore, looking into p-values, we can now validate our assumptions from previous section (Exploratory data analysis), by descending order of importance:
+
+* **smoker** - based on t value, this is the variable that describes our costs better, we now have proved that our analysis was correct
+* **age_yrs** - very important, as costs grows with age
+* **body_mass** - also important, since a higher body_mass implies more health costs
+* **no_children** - this variable also has some importance but its t-value and p-value are smaller than all other relevant variables
+
+Also our adjusted R-squared tell us that 75% of variance in Costs has been explained by the model. It's not great but let's see if we can maintain the same result decreasing the complexity of the model. This information will be used to tune our model.
+
+Before tuning the model, we will assess how well it generalizes with our Test subset.
+
+#### Asssess RMSE and $R^{2}$ on our Test dataset
+
+Below we will make predictions with new data, never seen by the model, it will help us to understand how good it is.
+
+```{r}
+set.seed(1)
+predictions_lm <- predict(healthcare_lm, healthcare_test)
+
+# Calculate RMSE manually for our Test set
+rmse_lm <- sqrt(mean((healthcare_test$costs-predictions_lm)^2))
+
+sprintf("Our RMSE is %.0f, it means that average error of our model for a new observation is: %0f",rmse_lm, rmse_lm)
+
+# Calculate R^2 for our Test set
+SSres_lm <- sum((healthcare_test$costs - predictions_lm)^2)
+SStot_lm <- sum((healthcare_test$costs - mean(healthcare_test$costs))^2)          
+
+r2_lm <- 1- (SSres_lm / SStot_lm)
+
+sprintf("Our R^2 is: %.0f%%, it means that our model explains %.0f%% of the result variance. Let's see if tuning the model we can maintain the same R^2 and RMSE.",r2_lm*100,r2_lm*100)
+
+```
+
+
+#### Tuning our Linear model
+
+Let's look into our t and p values again and adjust the model based on that information, removing any non statistical significant to the final result.
+
+```{r}
+# Linear regression output
+summary(healthcare_lm)
+```
+
+Based on our conclusions, we can remove gender and region from the model, let's give it a try and assess performance:
+
+```{r}
+set.seed(1)
+# Apply a linear model to fit costs with a subset of feaures
+healthcare_lm_1 <- lm(costs ~ age_yrs + smoker + body_mass +  no_children , data=healthcare_train)
+
+# Looking into our new model
+summary(healthcare_lm_1)
+```
+
+**What can we conclude from our coefficients?**
+
+* For each "year old" that a person has, the health cost increases approximately $253.
+* If a person smokes, the costs increases approximately $23,840, compared with a non smoker person.
+* For each BMI (body mass) unit that a person has, the cost increases by around $344.
+* For each children that a person has the cost with health wil increase $488
+* For previous balance an increase of 1 unit contributes to with -$0.068 in costs.
+
+This gives us a good understanding of to-dos and not to-dos in real life!
+
+The tuned model maintains the Adjusted R-squared in the training model, this is a good sign; however, we need to assess the performance on our Test dataset:
+
+```{r}
+set.seed(1)
+# Calculate predictions based on new model
+predictions_lm_1 <- predict(healthcare_lm_1, healthcare_test)
+
+# Calculate RMSE manually for our Test set
+rmse_lm_1 <- sqrt(mean((healthcare_test$costs-predictions_lm_1)^2))
+
+sprintf("Our RMSE is %.0f, it means that average error of our model for a new observation is: %0f",rmse_lm_1, rmse_lm_1)
+
+# Calculate R^2 for our Test set
+SSres_lm_1 <- sum((healthcare_test$costs - predictions_lm_1)^2)
+SStot_lm_1 <- sum((healthcare_test$costs - mean(healthcare_test$costs))^2)   
+
+r2_lm_1 <- 1- (SSres_lm_1 / SStot_lm_1)
+
+sprintf("Our R^2 is: %.0f%%, it means that our model explains %.0f%% of the result variance. Let's see if tuning the model we can maintain the same R^2 and RMSE.",r2_lm_1*100,r2_lm_1*100)
+
+```
+
+Our model is now less complex (but quicker) with a subtil increase of RMSE and a decrease of $R^{2}$. We can say that generalizes well with less complexity!
+
+Let's have a try with a Regression Tree and assess its performance. Because we have several Categorical variables and some non-linear relations, could a Regression Tree model predict better than our Linear regression model?
+
+### Using a CART - Regression Tree - rpart()
+
+```{r}
+set.seed(1)
+# Fit a regression tree into Healthcare dataset
+healthcare_dt <- rpart(formula = costs ~ ., 
+                       data = healthcare_train,
+                       method = "anova")
+
+# Textual representation of the tree fitted by the model
+print(healthcare_dt)
+
+# Graphical representation of the tree fitted by the model
+rpart.plot(healthcare_dt, yesno = 2, digits=-3)
+
+```
+
+The output of the tree shows a more visual way to assess and predict the cost of new observations. 
+
+**Complexity Parameter and Splits**
+
+Rpart already performed some pruning on the tree by assessing a range of cost of complexity(CP). The algorithm decided to use smoker, body_mass, age_yrs and prev_balance to predict the health cost. 
+
+The plot below shows CP values per number of splits.
+```{r}
+# Prints the Cross Validation relative error per CP
+printcp(healthcare_dt)
+plotcp(healthcare_dt)
+```
+
+Using the parameters that the algorithm chose, let's assess performance:
+
+```{r}
+set.seed(1)
+predictions_dt <- predict(healthcare_dt, healthcare_test)
+
+# Calculate RMSE manually
+rmse_dt <- sqrt(mean((healthcare_test$costs-predictions_dt)^2))
+
+sprintf("Our RMSE is %.0f, it means that average error of our model for a new observation is: %0f",rmse_dt, rmse_dt)
+
+# Calculate R^2 for our Test set
+SSres_dt <- sum((healthcare_test$costs - predictions_dt)^2)
+SStot_dt <- sum((healthcare_test$costs - mean(healthcare_test$costs))^2)
+
+r2_dt <- 1- (SSres_dt / SStot_dt)
+
+sprintf("Our R^2 is: %.0f%%, it means that our model explains %.0f%% of the result variance. Let's see if tuning the model we can maintain the same R^2 and RMSE.",r2_dt*100,r2_dt*100)
+
+```
+
+Since both 5 and 6 splits are under our cross-validation error threshold of 0.2, let's try to use 5 splits instead of 6.
+
+**Optimal complexity parameter (CP) value that minimizes cross validation error**
+
+```{r}
+# Print the Complexity Parameter table and the xerrors
+printcp(healthcare_dt)
+```
+
+Model is already tuned to use a CP of 0.01, minimizing the cross validation error, creating 6 buckets; however, let's try to increase the Complexity Parameter to 0.012 and assess RMSE and $R^{2}$ on the training test:
+
+```{r}
+set.seed(1)
+# Pruning the model
+healthcare_dt_1 <- prune(tree = healthcare_dt,
+                         cp = 0.012)
+                          
+# Plot the optimized model
+rpart.plot(x = healthcare_dt_1, yesno = 2, digits=-3)
+```
+
+Before we move on for performance assessment, it's interesting to see that using a regression tree algorithm, the most relevant features from Linear regression were selected, with exception of number of children on the 1st model and previous_balance in the 2nd. 
+
+Recalculating RMSE and $R^{2}$:
+
+```{r}
+set.seed(1)
+predictions_dt_1 <- predict(healthcare_dt_1, healthcare_test)
+
+# Calculate RMSE manually
+rmse_dt_1 <- sqrt(mean((healthcare_test$costs-predictions_dt_1)^2))
+
+sprintf("Our RMSE is %.0f, it means that average error of our model for a new observation is: %0f",rmse_dt_1, rmse_dt_1)
+
+# Calculate R^2 for our Test set
+SSres_dt_1 <- sum((healthcare_test$costs - predictions_dt_1)^2)
+SStot_dt_1 <- sum((healthcare_test$costs - mean(healthcare_test$costs))^2)
+
+r2_dt_1 <- 1- (SSres_dt_1 / SStot_dt_1)
+
+sprintf("Our R^2 is: %.0f%%, it means that our model explains %.0f%% of the result variance. Let's see if tuning the model we can maintain the same R^2 and RMSE.",r2_dt_1*100,r2_dt_1*100)
+
+```
+
+It seems that our performance got worse with only 5 splits. Let's use our first model with 6 split.
+
+## Which model is better?
+
+In this final section we will compare the results of all models and provide a conclusion:
+
+```{r}
+set.seed(1)
+# Create a matrix with all model performance metrics
+final_result <- rbind(c(rmse_lm, r2_lm, SSres_lm, SStot_lm),
+                      c(rmse_lm_1, r2_lm_1, SSres_lm_1, SStot_lm_1),
+                      c(rmse_dt, r2_dt, SSres_dt, SStot_dt),
+                      c(rmse_dt_1, r2_dt_1, SSres_dt_1, SStot_dt_1))
+
+# Give names to metrics
+colnames(final_result) <- c("RMSE","R-squared", "SSres","SSTot")   
+
+# Give names to rows
+rownames(final_result) <- c("Linear Regression - all variables",
+                            "Linear Regression - subset of variables",
+                            "Regression Tree - 6 splits",
+                            "Regression Tree - 5 splits")
+
+# Print Final Result
+final_result
+```
+
+It seems that the Regression Tree with 5 splits can describe the data better that any other model. It has the lower RMSE, and we got around 83% of our model's variability explained by our regression tree.
+
+We should use our Regression Tree with 5 splits to predict the costs of new observations more accurately.
+
+
+***  
